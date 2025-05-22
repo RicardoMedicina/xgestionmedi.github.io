@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Gestión Medi</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+
+<!-- Splash Screen -->
+<div id="splash-screen">
+  <img src="/icono.jpg" alt="Logo" class="logo-animada" />
+  <h1>Ferreterías Medi</h1>
+</div>
+
+<!-- Encabezado -->
+<header>
+  <img src="/icono.jpg" alt="Logo" class="logo" />
+  <h1>Gestión Medi</h1>
+</header>
+
+<!-- Navegación -->
+<nav>
+  <button onclick="navigate('scanner')"><i class="fas fa-barcode"></i> Escanear</button>
+  <button onclick="navigate('import')"><i class="fas fa-file-import"></i> Importar</button>
+  <button onclick="navigate('export')"><i class="fas fa-file-export"></i> Exportar</button>
+  <button onclick="navigate('pedido')"><i class="fas fa-clipboard-list"></i> Pedido Automático</button>
+</nav>
+
+<!-- Contenido principal -->
+<main id="main-content">
+  <p>Seleccioná una opción del menú para empezar.</p>
+</main>
+
+<!-- Pie de página -->
+<footer>
+  <p>Ferretería - Gestión Medi</p>
+</footer>
+
+<script src="script.js"></script>
+</body>
