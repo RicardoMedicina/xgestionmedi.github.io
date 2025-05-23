@@ -1,4 +1,5 @@
 let baseDatos = JSON.parse(localStorage.getItem('baseDatos')) || [];
+let tempDataImportada = []; // Guardamos la preview temporal hasta aceptar
 const PIN = "47576671";
 
 // Splash Screen (oculta el splash después de 2.5 seg)
@@ -38,14 +39,17 @@ function navigate(section) {
     });
   }
 
+  // --- IMPORTACIÓN MEJORADA ---
   if (section === 'import') {
     main.innerHTML = `
       <h2>Importar Base de Datos</h2>
       <input type="file" id="file-input" accept=".xlsx, .csv" />
-      <button onclick="procesarImportacion()">Confirmar Importación</button>
       <div id="import-preview" style="margin-top: 1rem;"></div>
+      <button id="aceptar-importacion" style="display:none;margin-top:1rem;">Aceptar Importación</button>
     `;
     document.getElementById('file-input').addEventListener('change', handleFile);
+    document.getElementById('aceptar-importacion').addEventListener('click', aceptarImportacion);
+    tempDataImportada = []; // Limpiar previo import nuevo
   }
 
   if (section === 'export') {
@@ -136,26 +140,36 @@ function mostrarFormularioEdicion(codigoBarra) {
   const producto = baseDatos.find(item => String(item["Código de Barras"]).trim() === codigoBarra);
   if (!producto) return;
 
+  // Descripción, Mínimo, Máximo, Proveedor, Ubicación: con PIN. Cantidad: siempre editable.
   document.getElementById('formulario-edicion').innerHTML = `
     <form id="edit-form" onsubmit="guardarEdicion(event, '${codigoBarra}')">
-      <input type="text" name="Descripción" value="${producto["Descripción"]}" placeholder="Descripción" />
-      <input type="number" name="Cantidad" value="${producto["Cantidad"]}" placeholder="Cantidad" />
-      <input type="password" id="pin-input" placeholder="Ingresar PIN para editar mín/máx" />
+      <input type="text" name="Descripción" value="${producto["Descripción"]}" placeholder="Descripción" disabled />
+      <input type="number" name="Cantidad" value="${producto["Cantidad"]}" placeholder="Cantidad (stock actual)" />
+      <input type="password" id="pin-input" placeholder="Ingresar PIN para editar campos avanzados" autocomplete="off" />
       <input type="number" name="Mínimo" value="${producto["Mínimo"]}" placeholder="Mínimo" disabled />
       <input type="number" name="Máximo" value="${producto["Máximo"]}" placeholder="Máximo" disabled />
-      <input type="text" name="Proveedor" value="${producto["Proveedor"]}" placeholder="Proveedor" />
-      <input type="text" name="Ubicación" value="${producto["Ubicación"]}" placeholder="Ubicación" />
-      <button type="submit">Guardar cambios</button>
+      <input type="text" name="Proveedor" value="${producto["Proveedor"]}" placeholder="Proveedor" disabled />
+      <input type="text" name="Ubicación" value="${producto["Ubicación"]}" placeholder="Ubicación" disabled />
+      <button type="submit" id="guardar-btn">Guardar cambios</button>
+      <div id="pin-status" style="margin-top:6px; color:#d00;"></div>
     </form>
   `;
 
-  document.getElementById('pin-input').addEventListener('input', e => {
-    if (e.target.value === PIN) {
-      document.querySelector('[name="Mínimo"]').disabled = false;
-      document.querySelector('[name="Máximo"]').disabled = false;
-    }
+  const pinInput = document.getElementById('pin-input');
+  pinInput.addEventListener('input', function(e) {
+    const isPinCorrect = pinInput.value === PIN;
+    const form = document.getElementById('edit-form');
+    // Solo habilita/deshabilita los campos avanzados (no cantidad)
+    ["Descripción", "Mínimo", "Máximo", "Proveedor", "Ubicación"].forEach(nombre => {
+      form.elements[nombre].disabled = !isPinCorrect;
+    });
+    // Estado visual
+    document.getElementById('pin-status').textContent = isPinCorrect ? "✔ PIN correcto, podés editar todos los campos." : (pinInput.value.length ? "PIN incorrecto" : "");
+    document.getElementById('pin-status').style.color = isPinCorrect ? "#080" : "#d00";
   });
 }
+
+
 
 function guardarEdicion(event, codigoBarra) {
   event.preventDefault();
@@ -202,6 +216,7 @@ function generarPedidoProveedor() {
   `;
 }
 
+// --- EXPORTACIÓN PEDIDO AUTOMÁTICO SOLO 3 COLUMNAS ---
 function exportarPedido(proveedor) {
   const productos = baseDatos.filter(p =>
     String(p.Proveedor).trim() === proveedor &&
@@ -213,16 +228,11 @@ function exportarPedido(proveedor) {
     return;
   }
 
-  // Generar nueva estructura con columnas específicas
+  // SOLO las tres columnas pedidas
   const dataFormateada = productos.map(p => ({
-    "Código de Barras": p["Código de Barras"],
-    "Descripción": p["Descripción"],
-    "Cantidad Actual": p["Cantidad"],
-    "Mínimo": p["Mínimo"],
-    "Máximo": p["Máximo"],
-    "Cantidad a Pedir": Math.max(0, Number(p["Máximo"]) - Number(p["Cantidad"])),
-    "Proveedor": p["Proveedor"],
-    "Ubicación": p["Ubicación"]
+    "Código de Proveedor": p["Código Proveedor"] || p["Proveedor"] || "",
+    "Descripción del Artículo": p["Descripción"] || "",
+    "Cantidad a Pedir": Math.max(0, Number(p["Máximo"]) - Number(p["Cantidad"]))
   }));
 
   const ws = XLSX.utils.json_to_sheet(dataFormateada);
@@ -230,24 +240,66 @@ function exportarPedido(proveedor) {
   XLSX.utils.book_append_sheet(wb, ws, "Pedido");
   XLSX.writeFile(wb, `Pedido_${proveedor}_Gestion_Medi.xlsx`);
 }
+// --- FIN EXPORTACIÓN ---
 
 function enviarWhatsapp(texto) {
   window.open(`https://wa.me/?text=📦 Pedido Automático:%0A${texto}`, "_blank");
 }
 
+// --- IMPORTACIÓN DE ARCHIVOS EXCEL/CSV MEJORADA ---
 function handleFile(event) {
   const file = event.target.files[0];
+  if (!file) {
+    alert("No se seleccionó ningún archivo.");
+    return;
+  }
   const reader = new FileReader();
   reader.onload = function(e) {
-    const data = new Uint8Array(e.target.result);
-    const workbook = XLSX.read(data, { type: 'array' });
-    const hoja = workbook.Sheets[workbook.SheetNames[0]];
-    const json = XLSX.utils.sheet_to_json(hoja);
-    baseDatos = json;
-    guardarEnLocalStorage();
-    mostrarPreview(json);
+    try {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+      const hoja = workbook.Sheets[workbook.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(hoja);
+
+      if (!json.length) {
+        alert("El archivo está vacío o no tiene datos.");
+        return;
+      }
+
+      // Validación de columnas mínimas
+      const columnasMinimas = ["Descripción", "Cantidad", "Mínimo", "Máximo", "Proveedor", "Ubicación", "Código de Barras"];
+      const columnasArchivo = Object.keys(json[0]);
+      const faltan = columnasMinimas.filter(c => !columnasArchivo.includes(c));
+      if (faltan.length > 0) {
+        alert("Faltan columnas obligatorias en el archivo:\n" + faltan.join(", "));
+        tempDataImportada = [];
+        document.getElementById('aceptar-importacion').style.display = 'none';
+        mostrarPreview([]);
+        return;
+      }
+
+      tempDataImportada = json;
+      mostrarPreview(json);
+      document.getElementById('aceptar-importacion').style.display = 'block';
+    } catch (err) {
+      alert("Error al procesar el archivo.\nAsegurate que sea un Excel o CSV válido.\n" + err.message);
+      tempDataImportada = [];
+      document.getElementById('aceptar-importacion').style.display = 'none';
+      mostrarPreview([]);
+    }
   };
   reader.readAsArrayBuffer(file);
+}
+
+function aceptarImportacion() {
+  if (!tempDataImportada.length) {
+    alert("No hay datos para importar.");
+    return;
+  }
+  baseDatos = tempDataImportada;
+  guardarEnLocalStorage();
+  alert("¡Base importada correctamente!");
+  // Si querés volver a otra sección automática, podés poner: navigate('scanner');
 }
 
 function mostrarPreview(data) {
