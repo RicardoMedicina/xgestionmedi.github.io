@@ -141,9 +141,9 @@ function mostrarFormularioEdicion(codigoBarra) {
   const producto = baseDatos.find(item => String(item["Código de Barras"]).trim() === codigoBarra);
   if (!producto) return;
 
-  // Descripción, Mínimo, Máximo, Proveedor, Ubicación: con PIN. Cantidad: siempre editable.
   document.getElementById('formulario-edicion').innerHTML = `
     <form id="edit-form" onsubmit="guardarEdicion(event, '${codigoBarra}')">
+      <input type="text" name="Código de Barras" value="${producto["Código de Barras"]}" placeholder="Código de Barras" />
       <input type="text" name="Descripción" value="${producto["Descripción"]}" placeholder="Descripción" disabled />
       <input type="number" name="Cantidad" value="${producto["Cantidad"]}" placeholder="Cantidad (stock actual)" />
       <input type="password" id="pin-input" placeholder="Ingresar PIN para editar campos avanzados" autocomplete="off" />
@@ -160,7 +160,7 @@ function mostrarFormularioEdicion(codigoBarra) {
   pinInput.addEventListener('input', function(e) {
     const isPinCorrect = pinInput.value === PIN;
     const form = document.getElementById('edit-form');
-    // Solo habilita/deshabilita los campos avanzados (no cantidad)
+    // Solo habilita/deshabilita los campos avanzados (no cantidad ni código de barras)
     ["Descripción", "Mínimo", "Máximo", "Proveedor", "Ubicación"].forEach(nombre => {
       form.elements[nombre].disabled = !isPinCorrect;
     });
@@ -170,28 +170,45 @@ function mostrarFormularioEdicion(codigoBarra) {
   });
 }
 
-
-
-function guardarEdicion(event, codigoBarra) {
+function guardarEdicion(event, codigoBarraAnterior) {
   event.preventDefault();
   const form = event.target;
-  const index = baseDatos.findIndex(item => String(item["Código de Barras"]).trim() === codigoBarra);
+  const nuevoCodigo = form["Código de Barras"].value.trim();
+
+  // Verifica que el nuevo código no esté en otro producto distinto al que estás editando
+  const codigoDuplicado = baseDatos.some((item, i) => 
+    String(item["Código de Barras"]).trim() === nuevoCodigo && 
+    String(item["Código de Barras"]).trim() !== String(codigoBarraAnterior).trim()
+  );
+
+  if (codigoDuplicado) {
+    alert("¡Error! Ya existe un producto con ese código de barras.");
+    return;
+  }
+
+  // Buscar el índice por el código anterior (por si lo cambió)
+  const index = baseDatos.findIndex(item => String(item["Código de Barras"]).trim() === codigoBarraAnterior);
   if (index === -1) return;
 
-  baseDatos[index]["Descripción"] = form.Descripción.value;
+  // Cambios permitidos siempre:
+  baseDatos[index]["Código de Barras"] = nuevoCodigo;
   baseDatos[index]["Cantidad"] = Number(form.Cantidad.value);
-  if (!form["Mínimo"].disabled) {
+
+  // Cambios avanzados sólo si no están deshabilitados (PIN correcto)
+  if (!form["Descripción"].disabled) {
+    baseDatos[index]["Descripción"] = form.Descripción.value;
     baseDatos[index]["Mínimo"] = Number(form["Mínimo"].value);
     baseDatos[index]["Máximo"] = Number(form["Máximo"].value);
+    baseDatos[index]["Proveedor"] = form.Proveedor.value;
+    baseDatos[index]["Ubicación"] = form.Ubicación.value;
   }
-  baseDatos[index]["Proveedor"] = form.Proveedor.value;
-  baseDatos[index]["Ubicación"] = form.Ubicación.value;
-
   guardarEnLocalStorage();
   alert("¡Cambios guardados!");
-  buscarProducto(codigoBarra);
+  buscarProducto(nuevoCodigo);
 }
 
+
+// --- EXPORTACIÓN PEDIDO AUTOMÁTICO SOLO 3 COLUMNAS ---
 function generarPedidoProveedor() {
   const proveedor = document.getElementById("proveedor-select").value;
   if (!proveedor) return alert("Seleccioná un proveedor");
@@ -217,30 +234,6 @@ function generarPedidoProveedor() {
   `;
 }
 
-// --- EXPORTACIÓN PEDIDO AUTOMÁTICO SOLO 3 COLUMNAS ---
-function exportarPedido(proveedor) {
-  const productos = baseDatos.filter(p =>
-    String(p.Proveedor).trim() === proveedor &&
-    Number(p.Cantidad) < Number(p.Mínimo)
-  );
-
-  if (productos.length === 0) {
-    alert("No hay productos por debajo del mínimo para este proveedor.");
-    return;
-  }
-
-  // SOLO las tres columnas pedidas
-  const dataFormateada = productos.map(p => ({
-    "Código de Proveedor": p["Código Proveedor"] || p["Proveedor"] || "",
-    "Descripción del Artículo": p["Descripción"] || "",
-    "Cantidad a Pedir": Math.max(0, Number(p["Máximo"]) - Number(p["Cantidad"]))
-  }));
-
-  const ws = XLSX.utils.json_to_sheet(dataFormateada);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Pedido");
-  XLSX.writeFile(wb, `Pedido_${proveedor}_Gestion_Medi.xlsx`);
-}
 // --- FIN EXPORTACIÓN ---
 
 function enviarWhatsapp(texto) {
@@ -324,4 +317,46 @@ function mostrarPreview(data) {
   html += "</tbody>";
   tabla.innerHTML = html;
   contenedor.appendChild(tabla);
+}
+
+function exportarExcel() {
+  if (!baseDatos || !baseDatos.length) {
+    alert("No hay datos para exportar.");
+    return;
+  }
+
+  // Armá la hoja Excel con toda la base
+  const ws = XLSX.utils.json_to_sheet(baseDatos);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Base de Datos");
+  XLSX.writeFile(wb, `Base_Gestion_Medi.xlsx`);
+}
+
+function exportarPedido(proveedor) {
+  const productos = baseDatos.filter(p =>
+    String(p.Proveedor).trim() === proveedor &&
+    Number(p.Cantidad) < Number(p.Mínimo)
+  );
+
+  if (!productos.length) {
+    alert("No hay productos por debajo del mínimo para este proveedor.");
+    return;
+  }
+
+  // Generar la estructura solo con las columnas necesarias, controlando nulls/undefined
+  const dataFormateada = productos.map(p => ({
+    "Código de Proveedor": (p["Código de Proveedor"] || p["Proveedor"] || "").toString(),
+    "Descripción del Artículo": (p["Descripción"] || "").toString(),
+    "Cantidad a Pedir": Math.max(0, Number(p["Máximo"]) - Number(p["Cantidad"])) || ""
+  }));
+
+  try {
+    const ws = XLSX.utils.json_to_sheet(dataFormateada);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Pedido");
+    XLSX.writeFile(wb, `Pedido_${proveedor}_Gestion_Medi.xlsx`);
+  } catch (err) {
+    alert("Ocurrió un error al exportar el pedido: " + err.message);
+    console.error("Error al exportar pedido:", err);
+  }
 }
