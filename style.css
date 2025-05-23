@@ -214,3 +214,14 @@ th {
 tr:nth-child(even) {
   background: #222;
 }
+
+input[disabled], select[disabled], textarea[disabled] {
+  background: #eee !important;
+  color: #aaa;
+  border: 1px solid #ccc;
+  cursor: not-allowed;
+}
+
+#pin-input {
+  letter-spacing: 3px;
+}
