@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Gestión Medi</title>
+  <title>Gestión Medi BETA</title>
   <link rel="stylesheet" href="style.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -19,14 +19,14 @@
 <!-- Encabezado -->
 <header>
   <img src="icono.jpg" alt="Logo" class="logo" />
-  <h1>Gestión Medi</h1>
+  <h1>Gestión Medi v1.0</h1>
 </header>
 
 <!-- Navegación -->
 <nav>
-  <button onclick="navigate('scanner')"><i class="fas fa-barcode"></i> Escanear</button>
-  <button onclick="navigate('import')"><i class="fas fa-file-import"></i> Importar</button>
-  <button onclick="navigate('export')"><i class="fas fa-file-export"></i> Exportar</button>
+  <button onclick="navigate('scanner')"><i class="fas fa-barcode"></i> Escanear codigo de barras</button>
+  <button onclick="navigate('import')"><i class="fas fa-file-import"></i> Importar base de datos</button>
+  <button onclick="navigate('export')"><i class="fas fa-file-export"></i> Exportar base de datos</button>
   <button onclick="navigate('pedido')"><i class="fas fa-clipboard-list"></i> Pedido Automático</button>
 </nav>
 
@@ -35,10 +35,10 @@
 </main>
 
 <footer>
-  <p>Ferretería - Gestión Medi</p>
+  <p>Ferretería - Gestión Medi v1.0</p>
 </footer>
-
+</body>
 <!-- Tu JS -->
 <script src="script.js"></script>
-</body>
+
 </html>
