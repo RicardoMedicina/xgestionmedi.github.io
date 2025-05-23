@@ -41,16 +41,17 @@ function navigate(section) {
 
   // --- IMPORTACIÓN MEJORADA ---
   if (section === 'import') {
-    main.innerHTML = `
-      <h2>Importar Base de Datos</h2>
-      <input type="file" id="file-input" accept=".xlsx, .csv" />
-      <div id="import-preview" style="margin-top: 1rem;"></div>
-      <button id="aceptar-importacion" style="display:none;margin-top:1rem;">Aceptar Importación</button>
-    `;
-    document.getElementById('file-input').addEventListener('change', handleFile);
-    document.getElementById('aceptar-importacion').addEventListener('click', aceptarImportacion);
-    tempDataImportada = []; // Limpiar previo import nuevo
-  }
+  main.innerHTML = `
+    <h2>Importar Base de Datos</h2>
+    <input type="file" id="file-input" accept=".xlsx, .csv" style="margin-bottom: 1rem;" />
+    <button id="aceptar-importacion" style="display:none; margin-bottom: 1rem;">Aceptar Importación</button>
+    <div id="import-preview" style="margin-top: 1rem;"></div>
+  `;
+  document.getElementById('file-input').addEventListener('change', handleFile);
+  document.getElementById('aceptar-importacion').addEventListener('click', aceptarImportacion);
+  tempDataImportada = [];
+}
+
 
   if (section === 'export') {
     exportarExcel();
