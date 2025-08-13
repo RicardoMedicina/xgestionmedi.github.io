@@ -128,7 +128,6 @@ function navigate(section) {
     radios.forEach(r => r.addEventListener('change', syncCoef));
     syncCoef();
 
-    // Botón de "No modificados"
     document.getElementById('btn-no-modificados')
       .addEventListener('click', mostrarNoModificadosProveedor);
   }
@@ -271,9 +270,8 @@ function calcularObjetivo(p, estrategia, coef) {
   if (estrategia === 'min') return min;
   if (estrategia === 'max') return techo;
 
-  // medio: target = min + coef * (max - min)
   const rango = Math.max(techo - min, 0);
-  const c = Math.min(Math.max(coef || 0.5, 0), 1); // clamp 0..1
+  const c = Math.min(Math.max(coef || 0.5, 0), 1);
   const objetivo = Math.round(min + c * rango);
   return Math.min(Math.max(objetivo, min), techo);
 }
@@ -286,7 +284,6 @@ function generarPedidoProveedor() {
   const coef = Number(document.getElementById('coef-input')?.value);
   const coefValido = isNaN(coef) ? 0.5 : Math.min(Math.max(coef, 0), 1);
 
-  // Filtra por proveedor y por debajo del objetivo
   const productos = baseDatos.filter(p => {
     const prov = (p[COLS.PROV] ?? '').toString().trim();
     if (prov !== proveedor) return false;
@@ -305,10 +302,9 @@ function generarPedidoProveedor() {
                  : estrategia === 'max' ? 'Máximo'
                  : `Intermedio (${coefValido.toFixed(2)})`;
 
-  // Mensaje lindo para WhatsApp (tabla monoespaciada + resumen)
+  // Armado del mensaje (ENCODED ya dentro)
   const whatsappTextEncoded = armarWhatsappPedido(proveedor, productos, estrategia, coefValido);
 
-  // Preview corto en pantalla
   const mensajePreview = productos.map(p => {
     const objetivo = calcularObjetivo(p, estrategia, coefValido);
     const stock = Number(p[COLS.CANT]) || 0;
@@ -328,7 +324,7 @@ function generarPedidoProveedor() {
   `;
 }
 
-// =================== EXPORTAR PEDIDO (ROBUSTO + HOJA "MÁXIMOS") ===================
+// =================== EXPORTAR PEDIDO (XLSX) ===================
 function exportarPedido(proveedor, estrategia = 'medio', coef = 0.5) {
   const prov = (proveedor ?? '').toString().trim();
 
@@ -337,7 +333,6 @@ function exportarPedido(proveedor, estrategia = 'medio', coef = 0.5) {
     return;
   }
 
-  // Productos que van al pedido (debajo del objetivo)
   const productos = baseDatos.filter(p => {
     const pv = (p[COLS.PROV] ?? '').toString().trim();
     if (pv !== prov) return false;
@@ -350,7 +345,6 @@ function exportarPedido(proveedor, estrategia = 'medio', coef = 0.5) {
                 : estrategia === 'max' ? 'Maximo'
                 : `Intermedio_${coef.toFixed(2)}`;
 
-  // --- Hoja 1: Pedido (si no hay productos, meto mensajito) ---
   const dataPedido = (productos.length ? productos : [{}]).map(p => {
     if (!productos.length) return { "Mensaje": "No hubo ítems por debajo del objetivo" };
     const objetivo = calcularObjetivo(p, estrategia, coef);
@@ -359,7 +353,7 @@ function exportarPedido(proveedor, estrategia = 'medio', coef = 0.5) {
     const noMod = !modificadosSesion.has(normalizarCodigo(p[COLS.COD_BARRAS]));
     return {
       "Estado": noMod ? "NO modificado 🔵" : "Modificado",
-      "Código de Proveedor": (p[COLS.COD_PROV] || p[COLS.PROV] || "").toString(),
+      "Código de Proveedor": (p[COLS.COD_PROV] || "").toString(),   // ← CORREGIDO
       "Código de Barras": (p[COLS.COD_BARRAS] ?? '').toString(),
       "Descripción del Artículo": (p[COLS.DESC] || "").toString(),
       "Stock Actual": stock,
@@ -368,7 +362,6 @@ function exportarPedido(proveedor, estrategia = 'medio', coef = 0.5) {
     };
   });
 
-  // --- Hoja 2: Máximos (todos los del proveedor) ---
   const todosDelProveedor = baseDatos.filter(p =>
     (p[COLS.PROV] ?? '').toString().trim() === prov
   );
@@ -377,7 +370,7 @@ function exportarPedido(proveedor, estrategia = 'medio', coef = 0.5) {
     const noMod = !modificadosSesion.has(normalizarCodigo(p[COLS.COD_BARRAS]));
     return {
       "Estado": noMod ? "NO modificado 🔵" : "Modificado",
-      "Código de Proveedor": (p[COLS.COD_PROV] || p[COLS.PROV] || "").toString(),
+      "Código de Proveedor": (p[COLS.COD_PROV] || "").toString(),   // ← CORREGIDO
       "Código de Barras": (p[COLS.COD_BARRAS] ?? '').toString(),
       "Descripción": (p[COLS.DESC] ?? '').toString(),
       "Mínimo": Number(p[COLS.MIN]) || 0,
@@ -394,7 +387,7 @@ function exportarPedido(proveedor, estrategia = 'medio', coef = 0.5) {
     XLSX.utils.book_append_sheet(wb, wsMaximos, "Maximos");
 
     const nombre = `Pedido_${prov}_Objetivo_${etiqueta}_Gestion_Medi.xlsx`;
-    guardarWorkbook(wb, nombre, "pedido-resultado"); // fuerza descarga + link fallback visible
+    guardarWorkbook(wb, nombre, "pedido-resultado");
   } catch (err) {
     alert("Ocurrió un error al exportar el pedido: " + err.message);
     console.error("Error al exportar pedido:", err);
@@ -425,14 +418,13 @@ function mostrarNoModificadosProveedor() {
     return `<li class="resaltado-celeste">${ds} — CB: ${cb} — Ubi: ${ub}</li>`;
   }).join('');
 
-  const whatsappText = encodeURIComponent(
-    lista.map(p => {
-      const ds = (p[COLS.DESC] ?? '').toString();
-      const cb = normalizarCodigo(p[COLS.COD_BARRAS]);
-      const ub = ((p[COLS.UBIC] ?? '').toString().trim()) || 'Sin ubicación';
-      return `🔵 ${ds} (CB:${cb}) — Ubi:${ub} — NO modificado`;
-    }).join('\n')
-  );
+  // Texto plano → ENCODE en enviarWhatsapp (prefijo + cuerpo)
+  const whatsappTextPlain = lista.map(p => {
+    const ds = (p[COLS.DESC] ?? '').toString();
+    const cb = normalizarCodigo(p[COLS.COD_BARRAS]);
+    const ub = ((p[COLS.UBIC] ?? '').toString().trim()) || 'Sin ubicación';
+    return `🔵 ${ds} (CB:${cb}) — Ubi:${ub} — NO modificado`;
+  }).join('\n');
 
   cont.innerHTML = `
     <div class="alerta alerta-amarilla">
@@ -443,7 +435,7 @@ function mostrarNoModificadosProveedor() {
       </details>
       <div style="margin-top:.5rem; display:flex; gap:.5rem; flex-wrap:wrap;">
         <button onclick="exportarNoModificados('${proveedor.replace(/"/g,'&quot;')}')">Exportar Excel</button>
-        <button onclick="enviarWhatsapp('${whatsappText}')">WhatsApp</button>
+        <button onclick="enviarWhatsapp( ${JSON.stringify(whatsappTextPlain)} )">WhatsApp</button>
       </div>
     </div>
   `;
@@ -459,7 +451,7 @@ function exportarNoModificados(proveedor) {
 
   const data = lista.map(p => ({
     "Estado": "NO modificado 🔵",
-    "Código de Proveedor": (p[COLS.COD_PROV] || p[COLS.PROV] || "").toString(),
+    "Código de Proveedor": (p[COLS.COD_PROV] || "").toString(),   // ← CORREGIDO
     "Código de Barras": normalizarCodigo(p[COLS.COD_BARRAS]),
     "Descripción": (p[COLS.DESC] ?? '').toString(),
     "Stock Actual": Number(p[COLS.CANT]) || 0,
@@ -495,7 +487,6 @@ function handleFile(event) {
         return;
       }
 
-      // Validación
       const columnasMinimas = [COLS.DESC, COLS.CANT, COLS.MIN, COLS.MAX, COLS.PROV, COLS.UBIC, COLS.COD_BARRAS];
       const columnasArchivo = Object.keys(json[0] || {});
       const faltan = columnasMinimas.filter(c => !columnasArchivo.includes(c));
@@ -507,7 +498,6 @@ function handleFile(event) {
         return;
       }
 
-      // Normalizo valores
       tempDataImportada = json.map(r => ({
         [COLS.COD_BARRAS]: (r[COLS.COD_BARRAS] ?? '').toString().trim(),
         [COLS.DESC]: (r[COLS.DESC] ?? '').toString(),
@@ -534,7 +524,7 @@ function handleFile(event) {
 function aceptarImportacion() {
   if (!tempDataImportada.length) return alert("No hay datos para importar.");
   baseDatos = tempDataImportada;
-  modificadosSesion = new Set(); // nueva base: nadie modificado en esta sesión
+  modificadosSesion = new Set();
   guardarEnLocalStorage();
   alert("¡Base importada correctamente!");
 }
@@ -570,8 +560,16 @@ function exportarExcel() {
 }
 
 // =================== UTIL & WHATSAPP ===================
-function enviarWhatsapp(texto) {
-  window.open(`https://wa.me/?text=📦 Pedido Automático:%0A${texto}`, "_blank");
+// ✅ FIX UTF-8: el prefijo se codifica con encodeURIComponent y se concatena al cuerpo (plain)
+function enviarWhatsapp(textoPlain) {
+  const prefixEncoded = encodeURIComponent('📦 Pedido Automático:\n');
+  const bodyEncoded = encodeURIComponent(textoPlain);
+  window.open(`https://wa.me/?text=${prefixEncoded}${bodyEncoded}`, "_blank");
+}
+
+// Mantengo esta función para cuando YA tenés el cuerpo codificado (como armarWhatsappPedido)
+function enviarWhatsappDirecto(textoEncoded) {
+  window.open(`https://wa.me/?text=${textoEncoded}`, "_blank");
 }
 
 // Helpers de formato para WhatsApp
@@ -584,7 +582,6 @@ function fechaCorta() {
   const mi = String(d.getMinutes()).padStart(2,'0');
   return `${dd}/${mm}/${yy} ${hh}:${mi}`;
 }
-
 function abreviar(s, l) {
   s = (s ?? '').toString().replace(/\s+/g,' ').trim();
   return s.length > l ? s.slice(0, l - 1) + '…' : s;
@@ -599,7 +596,7 @@ function padLeft(s, l) {
 }
 
 /**
- * Arma mensaje lindo para WhatsApp con cabecera + tabla monoespaciada
+ * WhatsApp (ENCODED). Devuelve el CUERPO ya codificado (para usar con enviarWhatsappDirecto).
  * Columnas: CB(13) UBI(6) PED(3) STK(3) DESC(<=28)
  */
 function armarWhatsappPedido(proveedor, productos, estrategia, coef) {
@@ -630,12 +627,8 @@ function armarWhatsappPedido(proveedor, productos, estrategia, coef) {
 
   const tabla = "```CB           UBI    PED STK DESCRIPCIÓN\n" + lineas.join("\n") + "```";
 
+  // Devuelvo ENCODED (lo usa enviarWhatsappDirecto sin tocar)
   return encodeURIComponent(encabezado + "\n" + tabla);
-}
-
-// Enviar texto YA ENCODED directo a WhatsApp (sin prefijo)
-function enviarWhatsappDirecto(textoEncoded) {
-  window.open(`https://wa.me/?text=${textoEncoded}`, "_blank");
 }
 
 // =================== DESCARGA XLSX (fallback robusto) ===================
@@ -646,7 +639,6 @@ function guardarWorkbook(wb, nombre, contenedorId) {
     } else {
       XLSX.writeFile(wb, nombre);
     }
-    // Mensaje de OK
     const cont = document.getElementById(contenedorId);
     if (cont) cont.insertAdjacentHTML('beforeend', `<p style="margin-top:.5rem;">✅ Archivo generado: <strong>${nombre}</strong> (revisá Descargas)</p>`);
   } catch (e) {
