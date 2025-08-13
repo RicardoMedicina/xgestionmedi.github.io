@@ -212,7 +212,7 @@ function mostrarFormularioEdicion(codigoBarra) {
 
   const pinInput = document.getElementById('pin-input');
   pinInput.addEventListener('input', function() {
-    const isPinCorrect = PIN === pinInput.value;
+    const isPinCorrect = pinInput.value === PIN;
     const form = document.getElementById('edit-form');
     [COLS.DESC, COLS.MIN, COLS.MAX, COLS.PROV, COLS.UBIC].forEach(nombre => {
       if (form.elements[nombre]) form.elements[nombre].disabled = !isPinCorrect;
@@ -305,7 +305,11 @@ function generarPedidoProveedor() {
                  : estrategia === 'max' ? 'Máximo'
                  : `Intermedio (${coefValido.toFixed(2)})`;
 
-  const mensaje = productos.map(p => {
+  // Mensaje lindo para WhatsApp (tabla monoespaciada + resumen)
+  const whatsappTextEncoded = armarWhatsappPedido(proveedor, productos, estrategia, coefValido);
+
+  // Preview corto en pantalla
+  const mensajePreview = productos.map(p => {
     const objetivo = calcularObjetivo(p, estrategia, coefValido);
     const stock = Number(p[COLS.CANT]) || 0;
     const aPedir = Math.max(0, objetivo - stock);
@@ -316,13 +320,22 @@ function generarPedidoProveedor() {
   resultado.innerHTML = `
     <p><strong>${productos.length}</strong> productos a pedir de <strong>${proveedor}</strong> con objetivo <strong>${etiqueta}</strong>.</p>
     <button onclick="exportarPedido('${proveedor.replace(/"/g,'&quot;')}', '${estrategia}', ${coefValido})">Exportar Excel</button>
-    <button onclick="enviarWhatsapp('${encodeURIComponent('Objetivo: ' + etiqueta + '\\n' + mensaje)}')">WhatsApp</button>
+    <button onclick="enviarWhatsappDirecto('${whatsappTextEncoded}')">WhatsApp</button>
+    <details style="margin-top:.5rem;">
+      <summary>Ver resumen rápido</summary>
+      <pre style="white-space:pre-wrap">${mensajePreview}</pre>
+    </details>
   `;
 }
 
-// =================== EXPORTAR PEDIDO (CON HOJA "MÁXIMOS") ===================
+// =================== EXPORTAR PEDIDO (ROBUSTO + HOJA "MÁXIMOS") ===================
 function exportarPedido(proveedor, estrategia = 'medio', coef = 0.5) {
   const prov = (proveedor ?? '').toString().trim();
+
+  if (typeof XLSX === 'undefined') {
+    alert("No se encontró la librería XLSX. Verificá que el <script> de SheetJS esté cargado antes de script.js");
+    return;
+  }
 
   // Productos que van al pedido (debajo del objetivo)
   const productos = baseDatos.filter(p => {
@@ -333,18 +346,13 @@ function exportarPedido(proveedor, estrategia = 'medio', coef = 0.5) {
     return stock < objetivo;
   });
 
-  if (!productos.length) {
-    alert("No hay productos por debajo del objetivo para este proveedor.");
-    // Igual generamos archivo con solo la hoja 'Maximos' si querés:
-    // return;
-  }
-
   const etiqueta = estrategia === 'min' ? 'Minimo'
                 : estrategia === 'max' ? 'Maximo'
                 : `Intermedio_${coef.toFixed(2)}`;
 
-  // Hoja 1: Pedido
-  const dataPedido = productos.map(p => {
+  // --- Hoja 1: Pedido (si no hay productos, meto mensajito) ---
+  const dataPedido = (productos.length ? productos : [{}]).map(p => {
+    if (!productos.length) return { "Mensaje": "No hubo ítems por debajo del objetivo" };
     const objetivo = calcularObjetivo(p, estrategia, coef);
     const stock = Number(p[COLS.CANT]) || 0;
     const aPedir = Math.max(0, objetivo - stock);
@@ -360,11 +368,12 @@ function exportarPedido(proveedor, estrategia = 'medio', coef = 0.5) {
     };
   });
 
-  // Hoja 2: Máximos (todos los del proveedor)
+  // --- Hoja 2: Máximos (todos los del proveedor) ---
   const todosDelProveedor = baseDatos.filter(p =>
     (p[COLS.PROV] ?? '').toString().trim() === prov
   );
-  const dataMaximos = todosDelProveedor.map(p => {
+  const dataMaximos = (todosDelProveedor.length ? todosDelProveedor : [{}]).map(p => {
+    if (!todosDelProveedor.length) return { "Mensaje": "Proveedor sin artículos en base" };
     const noMod = !modificadosSesion.has(normalizarCodigo(p[COLS.COD_BARRAS]));
     return {
       "Estado": noMod ? "NO modificado 🔵" : "Modificado",
@@ -383,7 +392,9 @@ function exportarPedido(proveedor, estrategia = 'medio', coef = 0.5) {
     XLSX.utils.book_append_sheet(wb, wsPedido, "Pedido");
     const wsMaximos = XLSX.utils.json_to_sheet(dataMaximos);
     XLSX.utils.book_append_sheet(wb, wsMaximos, "Maximos");
-    XLSX.writeFile(wb, `Pedido_${prov}_Objetivo_${etiqueta}_Gestion_Medi.xlsx`);
+
+    const nombre = `Pedido_${prov}_Objetivo_${etiqueta}_Gestion_Medi.xlsx`;
+    guardarWorkbook(wb, nombre, "pedido-resultado"); // fuerza descarga + link fallback visible
   } catch (err) {
     alert("Ocurrió un error al exportar el pedido: " + err.message);
     console.error("Error al exportar pedido:", err);
@@ -460,10 +471,10 @@ function exportarNoModificados(proveedor) {
   const ws = XLSX.utils.json_to_sheet(data);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "No_Modificados");
-  XLSX.writeFile(wb, `No_Modificados_${prov}_Gestion_Medi.xlsx`);
+  guardarWorkbook(wb, `No_Modificados_${prov}_Gestion_Medi.xlsx`, "no-modificados");
 }
 
-// =================== IMPORT / EXPORT ===================
+// =================== IMPORT / EXPORT BASE COMPLETA ===================
 function handleFile(event) {
   const file = event.target.files?.[0];
   if (!file) return alert("No se seleccionó ningún archivo.");
@@ -555,10 +566,105 @@ function exportarExcel() {
   const ws = XLSX.utils.json_to_sheet(baseDatos);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Base de Datos");
-  XLSX.writeFile(wb, `Base_Gestion_Medi.xlsx`);
+  guardarWorkbook(wb, `Base_Gestion_Medi.xlsx`, "main-content");
 }
 
-// =================== UTIL ===================
+// =================== UTIL & WHATSAPP ===================
 function enviarWhatsapp(texto) {
   window.open(`https://wa.me/?text=📦 Pedido Automático:%0A${texto}`, "_blank");
+}
+
+// Helpers de formato para WhatsApp
+function fechaCorta() {
+  const d = new Date();
+  const dd = String(d.getDate()).padStart(2,'0');
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  const yy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2,'0');
+  const mi = String(d.getMinutes()).padStart(2,'0');
+  return `${dd}/${mm}/${yy} ${hh}:${mi}`;
+}
+
+function abreviar(s, l) {
+  s = (s ?? '').toString().replace(/\s+/g,' ').trim();
+  return s.length > l ? s.slice(0, l - 1) + '…' : s;
+}
+function padRight(s, l) {
+  s = (s ?? '').toString();
+  return s.length >= l ? s.slice(0, l) : s + ' '.repeat(l - s.length);
+}
+function padLeft(s, l) {
+  s = (s ?? '').toString();
+  return s.length >= l ? s.slice(-l) : ' '.repeat(l - s.length) + s;
+}
+
+/**
+ * Arma mensaje lindo para WhatsApp con cabecera + tabla monoespaciada
+ * Columnas: CB(13) UBI(6) PED(3) STK(3) DESC(<=28)
+ */
+function armarWhatsappPedido(proveedor, productos, estrategia, coef) {
+  const etiqueta = estrategia === 'min' ? 'Mínimo'
+                 : estrategia === 'max' ? 'Máximo'
+                 : `Intermedio (${(coef ?? 0.5).toFixed(2)})`;
+
+  let totalUnidades = 0;
+  const lineas = productos.map(p => {
+    const objetivo = calcularObjetivo(p, estrategia, coef);
+    const stock = Number(p[COLS.CANT]) || 0;
+    const pedir = Math.max(0, objetivo - stock);
+    totalUnidades += pedir;
+
+    const cb  = normalizarCodigo(p[COLS.COD_BARRAS]);
+    const ubi = ((p[COLS.UBIC] ?? '') + '').trim() || '-';
+    const desc = abreviar(p[COLS.DESC], 28);
+
+    return `${padRight(cb,13)} ${padRight(ubi,6)} ${padLeft(pedir,3)} ${padLeft(stock,3)} ${desc}`;
+  });
+
+  const encabezado =
+    `🧾 *Pedido Medi*\n` +
+    `*Proveedor:* ${proveedor}\n` +
+    `*Objetivo:* ${etiqueta}\n` +
+    `*Fecha:* ${fechaCorta()}\n` +
+    `*Ítems:* ${productos.length}    *Unidades:* ${totalUnidades}\n`;
+
+  const tabla = "```CB           UBI    PED STK DESCRIPCIÓN\n" + lineas.join("\n") + "```";
+
+  return encodeURIComponent(encabezado + "\n" + tabla);
+}
+
+// Enviar texto YA ENCODED directo a WhatsApp (sin prefijo)
+function enviarWhatsappDirecto(textoEncoded) {
+  window.open(`https://wa.me/?text=${textoEncoded}`, "_blank");
+}
+
+// =================== DESCARGA XLSX (fallback robusto) ===================
+function guardarWorkbook(wb, nombre, contenedorId) {
+  try {
+    if (typeof XLSX.writeFileXLSX === 'function') {
+      XLSX.writeFileXLSX(wb, nombre);
+    } else {
+      XLSX.writeFile(wb, nombre);
+    }
+    // Mensaje de OK
+    const cont = document.getElementById(contenedorId);
+    if (cont) cont.insertAdjacentHTML('beforeend', `<p style="margin-top:.5rem;">✅ Archivo generado: <strong>${nombre}</strong> (revisá Descargas)</p>`);
+  } catch (e) {
+    try {
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const cont = document.getElementById(contenedorId);
+      const html = `
+        <div style="margin-top:.5rem;">
+          ⚠️ Descarga automática bloqueada. Bajalo manual:
+          <a href="${url}" download="${nombre}" style="margin-left:.5rem; text-decoration:underline;">Descargar ${nombre}</a>
+        </div>`;
+      if (cont) cont.insertAdjacentHTML('beforeend', html);
+      else window.open(url, "_blank");
+    } catch (e2) {
+      alert("No se pudo generar el archivo. Probá desde Chrome/Edge, no desde archivo local (file://).");
+      console.error("Fallback también falló:", e2);
+    }
+  }
 }
