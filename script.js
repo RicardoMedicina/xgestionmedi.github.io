@@ -212,7 +212,7 @@ function mostrarFormularioEdicion(codigoBarra) {
 
   const pinInput = document.getElementById('pin-input');
   pinInput.addEventListener('input', function() {
-    const isPinCorrect = pinInput.value === PIN;
+    const isPinCorrect = PIN === pinInput.value;
     const form = document.getElementById('edit-form');
     [COLS.DESC, COLS.MIN, COLS.MAX, COLS.PROV, COLS.UBIC].forEach(nombre => {
       if (form.elements[nombre]) form.elements[nombre].disabled = !isPinCorrect;
@@ -320,6 +320,76 @@ function generarPedidoProveedor() {
   `;
 }
 
+// =================== EXPORTAR PEDIDO (CON HOJA "MÁXIMOS") ===================
+function exportarPedido(proveedor, estrategia = 'medio', coef = 0.5) {
+  const prov = (proveedor ?? '').toString().trim();
+
+  // Productos que van al pedido (debajo del objetivo)
+  const productos = baseDatos.filter(p => {
+    const pv = (p[COLS.PROV] ?? '').toString().trim();
+    if (pv !== prov) return false;
+    const objetivo = calcularObjetivo(p, estrategia, coef);
+    const stock = Number(p[COLS.CANT]) || 0;
+    return stock < objetivo;
+  });
+
+  if (!productos.length) {
+    alert("No hay productos por debajo del objetivo para este proveedor.");
+    // Igual generamos archivo con solo la hoja 'Maximos' si querés:
+    // return;
+  }
+
+  const etiqueta = estrategia === 'min' ? 'Minimo'
+                : estrategia === 'max' ? 'Maximo'
+                : `Intermedio_${coef.toFixed(2)}`;
+
+  // Hoja 1: Pedido
+  const dataPedido = productos.map(p => {
+    const objetivo = calcularObjetivo(p, estrategia, coef);
+    const stock = Number(p[COLS.CANT]) || 0;
+    const aPedir = Math.max(0, objetivo - stock);
+    const noMod = !modificadosSesion.has(normalizarCodigo(p[COLS.COD_BARRAS]));
+    return {
+      "Estado": noMod ? "NO modificado 🔵" : "Modificado",
+      "Código de Proveedor": (p[COLS.COD_PROV] || p[COLS.PROV] || "").toString(),
+      "Código de Barras": (p[COLS.COD_BARRAS] ?? '').toString(),
+      "Descripción del Artículo": (p[COLS.DESC] || "").toString(),
+      "Stock Actual": stock,
+      "Objetivo": objetivo,
+      "Cantidad a Pedir": aPedir
+    };
+  });
+
+  // Hoja 2: Máximos (todos los del proveedor)
+  const todosDelProveedor = baseDatos.filter(p =>
+    (p[COLS.PROV] ?? '').toString().trim() === prov
+  );
+  const dataMaximos = todosDelProveedor.map(p => {
+    const noMod = !modificadosSesion.has(normalizarCodigo(p[COLS.COD_BARRAS]));
+    return {
+      "Estado": noMod ? "NO modificado 🔵" : "Modificado",
+      "Código de Proveedor": (p[COLS.COD_PROV] || p[COLS.PROV] || "").toString(),
+      "Código de Barras": (p[COLS.COD_BARRAS] ?? '').toString(),
+      "Descripción": (p[COLS.DESC] ?? '').toString(),
+      "Mínimo": Number(p[COLS.MIN]) || 0,
+      "Máximo": Number(p[COLS.MAX]) || 0,
+      "Ubicación": (p[COLS.UBIC] ?? '').toString()
+    };
+  });
+
+  try {
+    const wb = XLSX.utils.book_new();
+    const wsPedido = XLSX.utils.json_to_sheet(dataPedido);
+    XLSX.utils.book_append_sheet(wb, wsPedido, "Pedido");
+    const wsMaximos = XLSX.utils.json_to_sheet(dataMaximos);
+    XLSX.utils.book_append_sheet(wb, wsMaximos, "Maximos");
+    XLSX.writeFile(wb, `Pedido_${prov}_Objetivo_${etiqueta}_Gestion_Medi.xlsx`);
+  } catch (err) {
+    alert("Ocurrió un error al exportar el pedido: " + err.message);
+    console.error("Error al exportar pedido:", err);
+  }
+}
+
 // =================== NO MODIFICADOS POR PROVEEDOR ===================
 function mostrarNoModificadosProveedor() {
   const proveedor = (document.getElementById("proveedor-select")?.value ?? '').toString().trim();
@@ -341,7 +411,7 @@ function mostrarNoModificadosProveedor() {
     const cb = normalizarCodigo(p[COLS.COD_BARRAS]);
     const ds = (p[COLS.DESC] ?? '').toString();
     const ub = ((p[COLS.UBIC] ?? '').toString().trim()) || 'Sin ubicación';
-    return `<li>${ds} — CB: ${cb} — Ubi: ${ub}</li>`;
+    return `<li class="resaltado-celeste">${ds} — CB: ${cb} — Ubi: ${ub}</li>`;
   }).join('');
 
   const whatsappText = encodeURIComponent(
@@ -349,7 +419,7 @@ function mostrarNoModificadosProveedor() {
       const ds = (p[COLS.DESC] ?? '').toString();
       const cb = normalizarCodigo(p[COLS.COD_BARRAS]);
       const ub = ((p[COLS.UBIC] ?? '').toString().trim()) || 'Sin ubicación';
-      return `⚠️ ${ds} (CB:${cb}) — Ubi:${ub}`;
+      return `🔵 ${ds} (CB:${cb}) — Ubi:${ub} — NO modificado`;
     }).join('\n')
   );
 
@@ -377,12 +447,13 @@ function exportarNoModificados(proveedor) {
   if (!lista.length) return alert("No hay no-modificados para exportar.");
 
   const data = lista.map(p => ({
+    "Estado": "NO modificado 🔵",
+    "Código de Proveedor": (p[COLS.COD_PROV] || p[COLS.PROV] || "").toString(),
     "Código de Barras": normalizarCodigo(p[COLS.COD_BARRAS]),
     "Descripción": (p[COLS.DESC] ?? '').toString(),
     "Stock Actual": Number(p[COLS.CANT]) || 0,
     "Mínimo": Number(p[COLS.MIN]) || 0,
     "Máximo": Number(p[COLS.MAX]) || 0,
-    "Proveedor": (p[COLS.PROV] ?? '').toString(),
     "Ubicación": (p[COLS.UBIC] ?? '').toString()
   }));
 
