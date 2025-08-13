@@ -3,6 +3,9 @@ let baseDatos = JSON.parse(localStorage.getItem('baseDatos')) || [];
 let tempDataImportada = []; // preview temporal hasta aceptar
 const PIN = "47576671";
 
+// ✅ Dirección editable desde aquí:
+const DIRECCION_ENVIO = "Juramento 2835";
+
 const COLS = {
   COD_BARRAS: "Código de Barras",
   COD_PROV: "Código de Proveedor",
@@ -29,7 +32,7 @@ window.addEventListener('load', () => {
   const splash = document.getElementById('splash-screen');
   setTimeout(() => splash && (splash.style.display = 'none'), 2500);
 
-  // Registro del Service Worker (PWA)
+  // PWA
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./service-worker.js')
       .catch(err => console.warn('Service Worker no se pudo registrar:', err));
@@ -118,7 +121,7 @@ function navigate(section) {
       <div id="no-modificados" style="margin-top:.75rem;"></div>
     `;
 
-    // Mostrar/ocultar coeficiente según estrategia
+    // Mostrar/ocultar coeficiente
     const radios = Array.from(document.querySelectorAll('input[name="estrategia"]'));
     const coefWrapper = document.getElementById('coef-wrapper');
     function syncCoef() {
@@ -244,7 +247,7 @@ function guardarEdicion(event, codigoBarraAnterior) {
   baseDatos[index][COLS.COD_BARRAS] = nuevoCodigo;
   baseDatos[index][COLS.CANT] = Number(form[COLS.CANT]?.value) || 0;
 
-  // Avanzados si PIN correcto (inputs habilitados)
+  // Avanzados si PIN correcto
   if (!form[COLS.DESC].disabled) {
     baseDatos[index][COLS.DESC] = form[COLS.DESC]?.value ?? '';
     baseDatos[index][COLS.MIN]  = Number(form[COLS.MIN]?.value) || 0;
@@ -253,7 +256,6 @@ function guardarEdicion(event, codigoBarraAnterior) {
     baseDatos[index][COLS.UBIC] = form[COLS.UBIC]?.value ?? '';
   }
 
-  // Marca como modificado en esta sesión
   marcarModificado(codigoBarraAnterior, nuevoCodigo);
 
   guardarEnLocalStorage();
@@ -284,6 +286,7 @@ function generarPedidoProveedor() {
   const coef = Number(document.getElementById('coef-input')?.value);
   const coefValido = isNaN(coef) ? 0.5 : Math.min(Math.max(coef, 0), 1);
 
+  // Productos a pedir
   const productos = baseDatos.filter(p => {
     const prov = (p[COLS.PROV] ?? '').toString().trim();
     if (prov !== proveedor) return false;
@@ -298,27 +301,26 @@ function generarPedidoProveedor() {
     return;
   }
 
-  const etiqueta = estrategia === 'min' ? 'Mínimo'
-                 : estrategia === 'max' ? 'Máximo'
-                 : `Intermedio (${coefValido.toFixed(2)})`;
+  // 👉 Mensaje para WhatsApp: SALUDO + SEPARADOR + "COD_PROV // CANTIDAD"
+  const whatsappTextEncoded = armarWhatsappPedido(productos, estrategia, coefValido);
 
-  // Armado del mensaje (ENCODED ya dentro)
-  const whatsappTextEncoded = armarWhatsappPedido(proveedor, productos, estrategia, coefValido);
-
-  const mensajePreview = productos.map(p => {
+  // Preview en pantalla con el MISMO formato
+  const saludo = `Hola, buen día. Te hago pedido para ${DIRECCION_ENVIO}.`;
+  const separador = "------------------------------";
+  const lineas = productos.map(p => {
     const objetivo = calcularObjetivo(p, estrategia, coefValido);
     const stock = Number(p[COLS.CANT]) || 0;
     const aPedir = Math.max(0, objetivo - stock);
-    const desc = (p[COLS.DESC] ?? '').toString();
-    return `🧱 ${desc} | stock: ${stock} → pedir: ${aPedir}`;
+    return `${(p[COLS.COD_PROV] || "").toString()} // ${aPedir}`;
   }).join('\n');
+  const mensajePreview = `${saludo}\n\n${separador}\n${lineas}`;
 
   resultado.innerHTML = `
-    <p><strong>${productos.length}</strong> productos a pedir de <strong>${proveedor}</strong> con objetivo <strong>${etiqueta}</strong>.</p>
+    <p><strong>${productos.length}</strong> líneas listas para enviar a WhatsApp.</p>
     <button onclick="exportarPedido('${proveedor.replace(/"/g,'&quot;')}', '${estrategia}', ${coefValido})">Exportar Excel</button>
     <button onclick="enviarWhatsappDirecto('${whatsappTextEncoded}')">WhatsApp</button>
     <details style="margin-top:.5rem;">
-      <summary>Ver resumen rápido</summary>
+      <summary>Ver lo que se enviará</summary>
       <pre style="white-space:pre-wrap">${mensajePreview}</pre>
     </details>
   `;
@@ -353,7 +355,7 @@ function exportarPedido(proveedor, estrategia = 'medio', coef = 0.5) {
     const noMod = !modificadosSesion.has(normalizarCodigo(p[COLS.COD_BARRAS]));
     return {
       "Estado": noMod ? "NO modificado 🔵" : "Modificado",
-      "Código de Proveedor": (p[COLS.COD_PROV] || "").toString(),   // ← CORREGIDO
+      "Código de Proveedor": (p[COLS.COD_PROV] || "").toString(),   // (corregido)
       "Código de Barras": (p[COLS.COD_BARRAS] ?? '').toString(),
       "Descripción del Artículo": (p[COLS.DESC] || "").toString(),
       "Stock Actual": stock,
@@ -370,7 +372,7 @@ function exportarPedido(proveedor, estrategia = 'medio', coef = 0.5) {
     const noMod = !modificadosSesion.has(normalizarCodigo(p[COLS.COD_BARRAS]));
     return {
       "Estado": noMod ? "NO modificado 🔵" : "Modificado",
-      "Código de Proveedor": (p[COLS.COD_PROV] || "").toString(),   // ← CORREGIDO
+      "Código de Proveedor": (p[COLS.COD_PROV] || "").toString(),   // (corregido)
       "Código de Barras": (p[COLS.COD_BARRAS] ?? '').toString(),
       "Descripción": (p[COLS.DESC] ?? '').toString(),
       "Mínimo": Number(p[COLS.MIN]) || 0,
@@ -418,7 +420,6 @@ function mostrarNoModificadosProveedor() {
     return `<li class="resaltado-celeste">${ds} — CB: ${cb} — Ubi: ${ub}</li>`;
   }).join('');
 
-  // Texto plano → ENCODE en enviarWhatsapp (prefijo + cuerpo)
   const whatsappTextPlain = lista.map(p => {
     const ds = (p[COLS.DESC] ?? '').toString();
     const cb = normalizarCodigo(p[COLS.COD_BARRAS]);
@@ -435,7 +436,7 @@ function mostrarNoModificadosProveedor() {
       </details>
       <div style="margin-top:.5rem; display:flex; gap:.5rem; flex-wrap:wrap;">
         <button onclick="exportarNoModificados('${proveedor.replace(/"/g,'&quot;')}')">Exportar Excel</button>
-        <button onclick="enviarWhatsapp( ${JSON.stringify(whatsappTextPlain)} )">WhatsApp</button>
+        <button onclick="enviarWhatsapp(${JSON.stringify(whatsappTextPlain)})">WhatsApp</button>
       </div>
     </div>
   `;
@@ -451,7 +452,7 @@ function exportarNoModificados(proveedor) {
 
   const data = lista.map(p => ({
     "Estado": "NO modificado 🔵",
-    "Código de Proveedor": (p[COLS.COD_PROV] || "").toString(),   // ← CORREGIDO
+    "Código de Proveedor": (p[COLS.COD_PROV] || "").toString(),
     "Código de Barras": normalizarCodigo(p[COLS.COD_BARRAS]),
     "Descripción": (p[COLS.DESC] ?? '').toString(),
     "Stock Actual": Number(p[COLS.CANT]) || 0,
@@ -524,7 +525,7 @@ function handleFile(event) {
 function aceptarImportacion() {
   if (!tempDataImportada.length) return alert("No hay datos para importar.");
   baseDatos = tempDataImportada;
-  modificadosSesion = new Set();
+  modificadosSesion = new Set(); // nueva base
   guardarEnLocalStorage();
   alert("¡Base importada correctamente!");
 }
@@ -560,75 +561,33 @@ function exportarExcel() {
 }
 
 // =================== UTIL & WHATSAPP ===================
-// ✅ FIX UTF-8: el prefijo se codifica con encodeURIComponent y se concatena al cuerpo (plain)
+// Prefijo + cuerpo plano (para otros usos como "no modificados")
 function enviarWhatsapp(textoPlain) {
   const prefixEncoded = encodeURIComponent('📦 Pedido Automático:\n');
   const bodyEncoded = encodeURIComponent(textoPlain);
   window.open(`https://wa.me/?text=${prefixEncoded}${bodyEncoded}`, "_blank");
 }
 
-// Mantengo esta función para cuando YA tenés el cuerpo codificado (como armarWhatsappPedido)
+// Cuando YA tenés el cuerpo codificado
 function enviarWhatsappDirecto(textoEncoded) {
   window.open(`https://wa.me/?text=${textoEncoded}`, "_blank");
 }
 
-// Helpers de formato para WhatsApp
-function fechaCorta() {
-  const d = new Date();
-  const dd = String(d.getDate()).padStart(2,'0');
-  const mm = String(d.getMonth()+1).padStart(2,'0');
-  const yy = d.getFullYear();
-  const hh = String(d.getHours()).padStart(2,'0');
-  const mi = String(d.getMinutes()).padStart(2,'0');
-  return `${dd}/${mm}/${yy} ${hh}:${mi}`;
-}
-function abreviar(s, l) {
-  s = (s ?? '').toString().replace(/\s+/g,' ').trim();
-  return s.length > l ? s.slice(0, l - 1) + '…' : s;
-}
-function padRight(s, l) {
-  s = (s ?? '').toString();
-  return s.length >= l ? s.slice(0, l) : s + ' '.repeat(l - s.length);
-}
-function padLeft(s, l) {
-  s = (s ?? '').toString();
-  return s.length >= l ? s.slice(-l) : ' '.repeat(l - s.length) + s;
-}
+// 👉 Armado final para WhatsApp: SALUDO + SEPARADOR + "COD_PROV // CANTIDAD" (todo ENCODED)
+function armarWhatsappPedido(productos, estrategia, coef) {
+  const saludo = `Hola, buen día. Te hago pedido para ${DIRECCION_ENVIO}.`;
+  const separador = "------------------------------";
 
-/**
- * WhatsApp (ENCODED). Devuelve el CUERPO ya codificado (para usar con enviarWhatsappDirecto).
- * Columnas: CB(13) UBI(6) PED(3) STK(3) DESC(<=28)
- */
-function armarWhatsappPedido(proveedor, productos, estrategia, coef) {
-  const etiqueta = estrategia === 'min' ? 'Mínimo'
-                 : estrategia === 'max' ? 'Máximo'
-                 : `Intermedio (${(coef ?? 0.5).toFixed(2)})`;
-
-  let totalUnidades = 0;
   const lineas = productos.map(p => {
     const objetivo = calcularObjetivo(p, estrategia, coef);
     const stock = Number(p[COLS.CANT]) || 0;
     const pedir = Math.max(0, objetivo - stock);
-    totalUnidades += pedir;
+    const codProv = (p[COLS.COD_PROV] || "").toString();
+    return `${codProv} // ${pedir}`;
+  }).join('\n');
 
-    const cb  = normalizarCodigo(p[COLS.COD_BARRAS]);
-    const ubi = ((p[COLS.UBIC] ?? '') + '').trim() || '-';
-    const desc = abreviar(p[COLS.DESC], 28);
-
-    return `${padRight(cb,13)} ${padRight(ubi,6)} ${padLeft(pedir,3)} ${padLeft(stock,3)} ${desc}`;
-  });
-
-  const encabezado =
-    `🧾 *Pedido Medi*\n` +
-    `*Proveedor:* ${proveedor}\n` +
-    `*Objetivo:* ${etiqueta}\n` +
-    `*Fecha:* ${fechaCorta()}\n` +
-    `*Ítems:* ${productos.length}    *Unidades:* ${totalUnidades}\n`;
-
-  const tabla = "```CB           UBI    PED STK DESCRIPCIÓN\n" + lineas.join("\n") + "```";
-
-  // Devuelvo ENCODED (lo usa enviarWhatsappDirecto sin tocar)
-  return encodeURIComponent(encabezado + "\n" + tabla);
+  const cuerpo = `${saludo}\n\n${separador}\n${lineas}`;
+  return encodeURIComponent(cuerpo); // UTF-8 seguro
 }
 
 // =================== DESCARGA XLSX (fallback robusto) ===================
