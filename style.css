@@ -101,5 +101,3 @@ legend { padding: 0 8px; color: #00ff80; }
 /* Alertas de “No modificados” */
 .alerta { border:1px solid #f0c000; background:#2a2600; border-radius:8px; padding:12px; }
 .alerta.ok { border-color:#00c265; background:#002a0e; }
-
-/* (mantengo tu resto tal cual) */
